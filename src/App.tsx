@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Mic, MicOff, Camera, Gauge, Sparkles, Shield, Globe2, Languages, Settings2 } from 'lucide-react';
 import { agentRoster, languageOptions, RIDDHI_PERSONALITY, statusPalette } from './lib/assistantPersonality';
 import { AudioStreamer } from './lib/audioStreamer';
@@ -39,13 +39,15 @@ export default function App() {
     camera: false,
     location: false,
   });
-
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(import.meta.env.VITE_GEMINI_API_KEY ?? '');
   const [voiceOutput, setVoiceOutput] = useState('');
+
   const audioStreamer = useMemo(() => new AudioStreamer(), []);
   const liveSession = useMemo(() => new LiveSessionManager(apiKey), [apiKey]);
 
-  liveSession.setCallbacks(setSessionState, (base64) => setVoiceOutput(base64));
+  useEffect(() => {
+    liveSession.setCallbacks(setSessionState, (base64) => setVoiceOutput(base64));
+  }, [liveSession]);
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -68,21 +70,19 @@ export default function App() {
   const handlePower = async () => {
     if (sessionState === 'disconnected') {
       await liveSession.connect();
-      setSessionState('connecting');
+      setSessionState('ready');
       setIsMicOn(true);
       return;
     }
 
-    if (sessionState !== 'disconnected') {
-      setSessionState('disconnected');
-      setIsMicOn(false);
-      try {
-        await liveSession.interrupt();
-      } catch (error) {
-        console.error(error);
-      }
-      audioStreamer.stop();
+    setSessionState('disconnected');
+    setIsMicOn(false);
+    try {
+      await liveSession.interrupt();
+    } catch (error) {
+      console.error(error);
     }
+    audioStreamer.stop();
   };
 
   const handleMicToggle = async () => {
@@ -93,7 +93,7 @@ export default function App() {
     if (isMicOn) {
       audioStreamer.stop();
       setIsMicOn(false);
-      setSessionState('disconnected');
+      setSessionState('ready');
       return;
     }
 
@@ -103,7 +103,7 @@ export default function App() {
         await liveSession.startStreamingMic(chunk);
       });
       setIsMicOn(true);
-      setSessionState('listening');
+      setSessionState('ready');
     } catch (error) {
       console.error('Mic toggle failed:', error);
       setSessionState('disconnected');
@@ -116,16 +116,17 @@ export default function App() {
     }
 
     if (settings.cameraVision) {
-      setVisionObjects((prev) => [
-        ...prev.map((item, idx) => ({
+      setVisionObjects((prev) =>
+        prev.map((item, idx) => ({
           ...item,
           confidence: Math.min(0.99, item.confidence + (idx % 2 === 0 ? 0.02 : -0.01)),
         })),
-      ]);
+      );
     }
   };
 
-  const promptTone = RIDDHI_PERSONALITY.moodMap[sessionState] ?? RIDDHI_PERSONALITY.moodMap.idle;
+  const promptTone = RIDDHI_PERSONALITY.moodMap[sessionState] ?? RIDDHI_PERSONALITY.moodMap.disconnected;
+  const currentStatus = statusPalette[sessionState] ?? statusPalette.disconnected;
 
   return (
     <div className="min-h-screen bg-[#050816] text-white">
@@ -139,8 +140,11 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300">
-              {statusPalette[sessionState].label}
+            <span
+              className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300"
+              style={{ borderColor: `${currentStatus.color}66` }}
+            >
+              {currentStatus.label}
             </span>
             <button
               onClick={() => setShowSettings((prev) => !prev)}
@@ -155,7 +159,6 @@ export default function App() {
         <section className="grid flex-1 gap-6 lg:grid-cols-[1.4fr_0.8fr]">
           <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[#0d1325]/80 p-4 shadow-neon">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(244,114,182,0.12),transparent_40%)]" />
-
             <div className="relative flex h-full flex-col">
               <div className="mb-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
                 <div className="flex items-center gap-2">
@@ -206,9 +209,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <p className="relative z-10 mt-6 max-w-md text-center text-base text-slate-300">
-                  {promptTone}
-                </p>
+                <p className="relative z-10 mt-6 max-w-md text-center text-base text-slate-300">{promptTone}</p>
 
                 {voiceOutput && (
                   <div className="relative z-10 mt-6 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs text-cyan-200">
@@ -355,7 +356,12 @@ export default function App() {
                 ].map(([key, label]) => (
                   <button
                     key={key}
-                    onClick={() => updateSetting(key as keyof AppSettings, !settings[key as keyof AppSettings] as never)}
+                    onClick={() =>
+                      updateSetting(
+                        key as keyof AppSettings,
+                        !settings[key as keyof AppSettings] as never,
+                      )
+                    }
                     className={`rounded-xl border px-3 py-2 text-left text-sm ${
                       settings[key as keyof AppSettings]
                         ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
@@ -366,6 +372,17 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4 lg:col-span-3">
+              <label className="mb-3 block text-sm text-slate-200">Gemini API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="VITE_GEMINI_API_KEY"
+                className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none"
+              />
             </div>
           </section>
         )}

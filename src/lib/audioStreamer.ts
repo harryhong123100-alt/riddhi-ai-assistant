@@ -7,6 +7,10 @@ export class AudioStreamer {
   private onChunk?: (pcm16: Int16Array) => void;
 
   async start(onChunk: (pcm16: Int16Array) => void) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone is not supported in this browser.');
+    }
+
     this.onChunk = onChunk;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -22,8 +26,8 @@ export class AudioStreamer {
     this.source = this.context.createMediaStreamSource(stream);
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
-
     this.processor = this.context.createScriptProcessor(4096, 1, 1);
+
     this.source.connect(this.analyser);
     this.analyser.connect(this.processor);
     this.processor.connect(this.context.destination);

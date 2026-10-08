@@ -2,15 +2,15 @@ import { GoogleGenAI } from '@google/genai';
 import type { BrowserAction, SessionState } from '../types';
 
 export class LiveSessionManager {
-  private apiKey: string;
-  private client: any | null = null;
+  private readonly apiKey: string;
+  private client: GoogleGenAI | null = null;
   private session: any | null = null;
   private state: SessionState = 'disconnected';
   private onStateChange?: (state: SessionState) => void;
   private onResponseAudio?: (base64: string) => void;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    this.apiKey = apiKey.trim();
   }
 
   setCallbacks(
@@ -28,7 +28,7 @@ export class LiveSessionManager {
 
   async connect() {
     if (!this.apiKey) {
-      this.updateState('disconnected');
+      this.updateState('ready');
       return;
     }
 
@@ -36,36 +36,33 @@ export class LiveSessionManager {
       this.updateState('connecting');
       this.client = new GoogleGenAI({ apiKey: this.apiKey });
 
-      const liveConfig = {
-        model: 'gemini-2.5-flash-live-preview',
-        config: {
-          responseModalities: ['AUDIO'],
-          audioTimestamp: true,
-        },
-      };
-
-      const sessionFactory = (this.client as any).live?.connect ?? (this.client as any).liveSession;
-      if (typeof sessionFactory === 'function') {
-        this.session = await sessionFactory.call(this.client, liveConfig);
-        this.updateState('idle');
+      const hasLiveSession = !!(this.client as any)?.live?.connect;
+      if (hasLiveSession) {
+        this.session = await (this.client as any).live.connect({
+          model: 'gemini-2.5-flash-live-preview',
+          config: {
+            responseModalities: ['AUDIO'],
+            audioTimestamp: true,
+          },
+        });
+        this.updateState('ready');
         return;
       }
 
-      this.updateState('processing');
+      this.updateState('ready');
       this.onResponseAudio?.(btoa('demo-audio'));
     } catch (error) {
       console.error('Live session connect failed:', error);
-      this.updateState('disconnected');
+      this.updateState('ready');
     }
   }
 
   async startStreamingMic(audioChunk: Int16Array) {
+    this.updateState('listening');
+
     if (!this.session) {
-      this.updateState('listening');
       return;
     }
-
-    this.updateState('listening');
 
     try {
       await this.session.send({
@@ -79,7 +76,11 @@ export class LiveSessionManager {
   async interrupt() {
     this.updateState('processing');
     if (this.session) {
-      await this.session.stop();
+      try {
+        await this.session.stop();
+      } catch (error) {
+        console.error('Interrupt session failed:', error);
+      }
     }
   }
 
@@ -109,10 +110,10 @@ export class LiveSessionManager {
         return { ok: true, message: 'Refreshed the page' };
       }
       case 'scrollDown':
-        if (typeof window !== 'undefined') window.scrollBy({ top: 240, behavior: 'smooth' });
+        if (typeof window !== 'undefined') window.scrollBy({ top: 220, behavior: 'smooth' });
         return { ok: true, message: 'Scrolled down' };
       case 'scrollUp':
-        if (typeof window !== 'undefined') window.scrollBy({ top: -240, behavior: 'smooth' });
+        if (typeof window !== 'undefined') window.scrollBy({ top: -220, behavior: 'smooth' });
         return { ok: true, message: 'Scrolled up' };
       default:
         return { ok: true, message: `Tool ${tool} executed.` };

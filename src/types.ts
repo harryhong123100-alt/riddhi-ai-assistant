@@ -1,4 +1,4 @@
-export type SessionState = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'processing';
+export type SessionState = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'processing' | 'ready';
 
 export type BrowserAction =
   | 'openWebsite'
